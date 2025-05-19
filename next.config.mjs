@@ -12,6 +12,14 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  
+  // 添加输出配置，用于Edge部署
+  output: 'export',
+  
+  // 禁用图像优化，因为在静态导出中不支持
+  images: {
+    unoptimized: true,
+  },
 };
 
 export default nextConfig;
