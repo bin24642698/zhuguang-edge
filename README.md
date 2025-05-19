@@ -1,6 +1,15 @@
-# 烛光写作
+# 烛光写作 - Edge版本
 
 烛光写作是一个使用Next.js构建的在线写作平台，结合现代UI设计和AI功能，帮助作者创作、整理和优化他们的作品。
+
+## Edge版本特点
+
+Edge版本是烛光写作的轻量级版本，主要特点：
+
+- 去除了Supabase依赖，使用本地存储
+- 优化了性能，适合在Edge环境下运行
+- 简化了部署流程，可以快速部署到Cloudflare Pages等边缘计算平台
+- 保留了核心写作和AI辅助功能
 
 ## 功能特点
 
@@ -19,7 +28,6 @@
 - TypeScript
 - Tailwind CSS
 - IndexedDB (通过idb库实现本地存储)
-- Supabase (用户认证和云端数据存储)
 - Zustand (状态管理)
 - Gemini API (AI功能)
 
@@ -65,15 +73,14 @@ graph TD
     F -.- H
 ```
 
-## 用户认证
+## 部署说明
 
-使用 Supabase 实现用户认证功能，支持：
+Edge版本可以部署到支持Edge运行时的平台，如Cloudflare Pages、Vercel Edge Functions等。部署步骤：
 
-- 邮箱/密码注册和登录
-- 用户个人信息管理
-- 数据与用户关联，确保数据安全
-
-详细配置和使用说明请参考 [Supabase 集成指南](SUPABASE.md)。
+1. 克隆仓库
+2. 安装依赖：`npm install`或`yarn`
+3. 构建项目：`npm run build`或`yarn build`
+4. 部署到Edge平台：`npm run deploy`或使用平台特定的部署命令
 
 ## 下一步计划
 
@@ -82,4 +89,4 @@ graph TD
 3. 改进创意图谱功能
 4. 离线工作模式
 5. 完善档案馆功能，支持更丰富的关联和引用
-6. 完善 Supabase 集成，支持数据同步和多设备访问
+6. 添加用户认证但保持Edge兼容性
