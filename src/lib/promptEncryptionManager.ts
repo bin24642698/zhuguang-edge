@@ -3,8 +3,7 @@
  * 用于管理提示词的加密和解密
  */
 import { Prompt } from '@/data/database/types/prompt';
-import { getCurrentUser } from './supabase';
-import { encryptText, decryptText, generateEncryptionKey, isEncrypted } from './utils/encryption';
+import { encryptText, decryptText, generateLocalEncryptionKey, isEncrypted } from './utils/encryption';
 
 /**
  * 加密提示词内容
@@ -13,13 +12,8 @@ import { encryptText, decryptText, generateEncryptionKey, isEncrypted } from './
  */
 export const encryptPrompt = async (prompt: Prompt | Omit<Prompt, 'id'>): Promise<Prompt | Omit<Prompt, 'id'>> => {
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      console.warn('用户未登录，无法加密提示词');
-      return prompt;
-    }
-    
-    const key = generateEncryptionKey(user.id);
+    // 使用本地存储的密钥或生成一个固定的密钥
+    const key = generateLocalEncryptionKey();
     
     // 检查内容是否已加密
     if (isEncrypted(prompt.content, key)) {
@@ -46,13 +40,8 @@ export const encryptPrompt = async (prompt: Prompt | Omit<Prompt, 'id'>): Promis
  */
 export const decryptPrompt = async (prompt: Prompt): Promise<Prompt> => {
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      console.warn('用户未登录，无法解密提示词');
-      return prompt;
-    }
-    
-    const key = generateEncryptionKey(user.id);
+    // 使用本地存储的密钥或生成一个固定的密钥
+    const key = generateLocalEncryptionKey();
     
     // 检查内容是否已加密
     if (!isEncrypted(prompt.content, key)) {
@@ -96,13 +85,8 @@ export const decryptPrompts = async (prompts: Prompt[]): Promise<Prompt[]> => {
  */
 export const decryptPromptOnDemand = async (prompt: Prompt): Promise<string> => {
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      console.warn('用户未登录，无法解密提示词');
-      return prompt.content;
-    }
-    
-    const key = generateEncryptionKey(user.id);
+    // 使用本地存储的密钥或生成一个固定的密钥
+    const key = generateLocalEncryptionKey();
     
     // 检查内容是否已加密
     if (!isEncrypted(prompt.content, key)) {

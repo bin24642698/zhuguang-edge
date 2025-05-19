@@ -72,41 +72,21 @@ export const PromptSelectionModal: React.FC<PromptSelectionModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<'recommended' | 'user' | 'my'>('recommended');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
 
-  // 滚动容器引用
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-
-  // 每页加载的提示词数量
   const PAGE_SIZE = 20;
 
-  // 加载提示词
   const loadPrompts = useCallback(async () => {
     if (!isOpen) return;
-
     setIsLoading(true);
     setError('');
-
     try {
-      let loadedPrompts: Prompt[] = [];
-
-      if (filterType === 'my') {
-        // 加载用户自己的提示词
-        loadedPrompts = await getAIInterfacePromptsByType(promptType, false);
-      } else if (filterType === 'recommended') {
-        // 加载推荐提示词（公开提示词）
-        loadedPrompts = await getPublicPrompts(promptType, false);
-      } else if (filterType === 'user') {
-        // 加载其他用户创建的提示词
-        loadedPrompts = await getUserCreatedPrompts(promptType, false);
-      }
-
+      const loadedPrompts = await getAIInterfacePromptsByType(promptType, false);
       setPrompts(loadedPrompts);
 
-      // 如果有初始选中的提示词ID，设置选中状态
       if (initialSelectedId) {
         const selected = loadedPrompts.find(p => p.id === initialSelectedId);
         if (selected) {
@@ -119,11 +99,9 @@ export const PromptSelectionModal: React.FC<PromptSelectionModalProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [isOpen, promptType, filterType, initialSelectedId]);
+  }, [isOpen, promptType, initialSelectedId]);
 
-  // 过滤和分页提示词
   useEffect(() => {
-    // 根据搜索词过滤
     let filtered = prompts;
     if (searchTerm) {
       filtered = prompts.filter(prompt =>
@@ -131,33 +109,25 @@ export const PromptSelectionModal: React.FC<PromptSelectionModalProps> = ({
         (prompt.description && prompt.description.toLowerCase().includes(searchTerm.toLowerCase()))
       );
     }
-
-    // 应用分页
     setFilteredPrompts(filtered.slice(0, page * PAGE_SIZE));
     setHasMore(filtered.length > page * PAGE_SIZE);
-  }, [prompts, searchTerm, page]);
+  }, [prompts, searchTerm, page, PAGE_SIZE]);
 
-  // 初始加载
   useEffect(() => {
     if (isOpen) {
       loadPrompts();
-      setPage(1); // 重置分页
+      setPage(1);
     }
   }, [isOpen, loadPrompts]);
 
-  // 处理滚动加载更多
   const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current || !hasMore || isLoading) return;
-
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-
-    // 当滚动到底部附近时加载更多
     if (scrollTop + clientHeight >= scrollHeight - 100) {
       setPage(prev => prev + 1);
     }
   }, [hasMore, isLoading]);
 
-  // 添加滚动监听
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
     if (scrollContainer) {
@@ -166,25 +136,14 @@ export const PromptSelectionModal: React.FC<PromptSelectionModalProps> = ({
     }
   }, [handleScroll]);
 
-  // 处理提示词点击
   const handlePromptClick = (prompt: Prompt) => {
     setSelectedPrompt(prompt);
   };
 
-  // 处理提示词选择
   const handlePromptSelect = () => {
     if (selectedPrompt) {
       onSelect(selectedPrompt);
       onClose();
-    }
-  };
-
-  // 处理过滤类型切换
-  const handleFilterTypeChange = (type: 'my' | 'recommended' | 'user') => {
-    if (type !== filterType) {
-      setFilterType(type);
-      setPage(1);
-      setSelectedPrompt(null);
     }
   };
 
@@ -206,12 +165,6 @@ export const PromptSelectionModal: React.FC<PromptSelectionModalProps> = ({
       footer={
         <div className="flex justify-end space-x-3">
           <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg border border-[#8a7c70] text-gray-700 hover:bg-gray-50 transition-all duration-200 shadow-sm"
-          >
-            取消
-          </button>
-          <button
             onClick={handlePromptSelect}
             disabled={!selectedPrompt}
             className={`px-4 py-2 rounded-lg text-white transition-all duration-200 ${
@@ -225,152 +178,74 @@ export const PromptSelectionModal: React.FC<PromptSelectionModalProps> = ({
               选择提示词
             </span>
           </button>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg border border-[#8a7c70] text-gray-700 hover:bg-gray-50 transition-all duration-200 shadow-sm"
+          >
+            取消
+          </button>
         </div>
       }
       maxWidth="max-w-2xl"
     >
       <div className="h-[500px] flex flex-col bg-[#fcfcfa] rounded-lg shadow-inner">
-        {/* 搜索和过滤区域 */}
-        <div className="mb-4 p-3 flex items-center justify-between bg-[#f7f6f1] rounded-lg border border-[#8a7c70]/30 shadow-sm">
-          {/* 过滤标签 - 吉卜力风格按钮 */}
-          <div className="flex space-x-2">
-            <button
-              onClick={() => handleFilterTypeChange('recommended')}
-              className={`px-3 py-1.5 rounded-lg text-sm transition-all duration-200 ${
-                filterType === 'recommended'
-                  ? 'bg-gradient-to-br from-[#6d5c4d] to-[#4b3b2a] text-white shadow-sm'
-                  : 'bg-white text-gray-600 hover:bg-white border border-[#8a7c70]'
-              }`}
-            >
-              <span className="flex items-center">
-                <span className="material-icons text-sm mr-1">recommend</span>
-                推荐
-              </span>
-            </button>
-            <button
-              onClick={() => handleFilterTypeChange('user')}
-              className={`px-3 py-1.5 rounded-lg text-sm transition-all duration-200 ${
-                filterType === 'user'
-                  ? 'bg-gradient-to-br from-[#6d5c4d] to-[#4b3b2a] text-white shadow-sm'
-                  : 'bg-white text-gray-600 hover:bg-white border border-[#8a7c70]'
-              }`}
-            >
-              <span className="flex items-center">
-                <span className="material-icons text-sm mr-1">group</span>
-                用户
-              </span>
-            </button>
-            <button
-              onClick={() => handleFilterTypeChange('my')}
-              className={`px-3 py-1.5 rounded-lg text-sm transition-all duration-200 ${
-                filterType === 'my'
-                  ? 'bg-gradient-to-br from-[#6d5c4d] to-[#4b3b2a] text-white shadow-sm'
-                  : 'bg-white text-gray-600 hover:bg-white border border-[#8a7c70]'
-              }`}
-            >
-              <span className="flex items-center">
-                <span className="material-icons text-sm mr-1">person</span>
-                我的
-              </span>
-            </button>
-          </div>
-
-          {/* 搜索框 - 更精美的设计 */}
+        <div className="p-3 bg-[#f7f6f1] rounded-t-lg border-b border-[#8a7c70]/30 shadow-sm">
           <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <span className="material-icons text-gray-400">search</span>
+            </div>
             <input
               type="text"
+              placeholder="搜索提示词..."
+              className="w-full pl-10 pr-3 py-2 rounded-lg border border-[#8a7c70]/50 focus:ring-2 focus:ring-[#6d5c4d]/50 focus:border-[#6d5c4d] outline-none transition-colors bg-white shadow-sm text-sm"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="搜索提示词..."
-              className="pl-8 pr-3 py-1.5 bg-white border border-[#8a7c70] rounded-full text-sm focus:outline-none focus:ring-1 focus:ring-[#6d5c4d] w-48 shadow-sm transition-all duration-200"
             />
-            <span className="material-icons text-sm absolute left-2 top-1.5 text-[#6d5c4d]">search</span>
           </div>
         </div>
 
-        {/* 提示词列表 */}
         <div
           ref={scrollContainerRef}
-          className="flex-1 overflow-y-auto pr-1 custom-scrollbar"
+          className="flex-grow overflow-y-auto p-3 space-y-2"
+          onScroll={handleScroll}
         >
-          {isLoading && page === 1 ? (
-            <div className="h-full flex items-center justify-center">
-              <div className="flex flex-col items-center">
-                <div className="w-12 h-12 rounded-full border-2 border-t-transparent border-[#6d5c4d] animate-spin mb-3"></div>
-                <span className="text-[#6d5c4d]">加载中...</span>
-              </div>
-            </div>
-          ) : error ? (
-            <div className="h-full flex items-center justify-center">
-              <div className="text-center">
-                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-3 mx-auto">
-                  <span className="material-icons text-red-500 text-2xl">error_outline</span>
-                </div>
-                <span className="text-red-500 block">{error}</span>
-              </div>
-            </div>
-          ) : filteredPrompts.length === 0 ? (
-            <div className="h-full flex items-center justify-center flex-col">
-              <div className="w-20 h-20 bg-[#f7f2ea] rounded-full flex items-center justify-center mb-4">
-                <span className="material-icons text-4xl text-[#8a7c70]">lightbulb</span>
-              </div>
-              <h3 className="text-lg font-medium text-text-dark mb-2 font-ma-shan">
-                {searchTerm ? "没有找到匹配的提示词" : "暂无提示词"}
-              </h3>
-              <p className="text-text-medium text-center max-w-xs mb-6">
-                {searchTerm ? "尝试使用其他关键词搜索" : "创建你的第一个提示词，开始AI创作之旅"}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {filteredPrompts.map(prompt => (
-                <div
-                  key={prompt.id}
-                  className={`group p-3 rounded-lg transition-all duration-200 cursor-pointer relative ${
-                    selectedPrompt?.id === prompt.id
-                      ? 'bg-[#e6dfd0] border-l-4 border-[#6d5c4d] shadow-md transform scale-[1.01]' // 选中项的样式，使用棕色系
-                      : 'bg-[#f7f2ea] hover:bg-[#f0e9df] border-l-4 border-transparent hover:shadow-sm' // 默认样式，使用棕色系
-                  }`}
-                  onClick={() => handlePromptClick(prompt)}
-                >
-                  <div className="flex items-start">
-                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#6d5c4d] to-[#4b3b2a] flex-shrink-0 flex items-center justify-center mr-3 text-white shadow-sm">
-                      <span className="material-icons text-sm">{promptTypeIcons[promptType]}</span>
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-gray-800 truncate">
-                        {prompt.title}
-                      </div>
-
-                      {prompt.description && (
-                        <div className="text-sm text-gray-500 mt-1 line-clamp-2">
-                          {prompt.description}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* 添加选中指示器 */}
-                  {selectedPrompt?.id === prompt.id && (
-                    <div className="absolute top-2 right-2 text-[#6d5c4d]">
-                      <span className="material-icons text-sm">check_circle</span>
-                    </div>
-                  )}
-                </div>
-              ))}
-
-              {/* 加载更多指示器 */}
-              {isLoading && page > 1 && (
-                <div className="py-3 text-center">
-                  <div className="flex items-center justify-center">
-                    <div className="w-5 h-5 rounded-full border-2 border-t-transparent border-[#6d5c4d] animate-spin mr-2"></div>
-                    <span className="text-[#6d5c4d]">加载更多...</span>
-                  </div>
-                </div>
-              )}
+          {isLoading && prompts.length === 0 && (
+            <div className="flex justify-center items-center h-full">
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#6d5c4d]"></div>
             </div>
           )}
+          {!isLoading && filteredPrompts.length === 0 && (
+            <div className="text-center py-10 text-gray-500">
+              <span className="material-icons text-4xl mb-2">search_off</span>
+              <p>没有找到匹配的提示词</p>
+            </div>
+          )}
+          {filteredPrompts.map((prompt) => (
+            <div
+              key={prompt.id}
+              onClick={() => handlePromptClick(prompt)}
+              className={`p-3 rounded-lg cursor-pointer transition-all duration-200 flex items-center justify-between border
+                ${selectedPrompt?.id === prompt.id
+                  ? 'bg-[#e6dfd0] border-[#6d5c4d] shadow-md'
+                  : 'bg-white hover:bg-[#f0e9df] border-transparent hover:border-[#8a7c70]/50'
+                }`}
+            >
+              <div>
+                <h3 className={`font-medium ${selectedPrompt?.id === prompt.id ? 'text-[#4b3b2a]' : 'text-gray-700'}`}>{prompt.title}</h3>
+                {prompt.description && (
+                  <p className={`text-xs mt-1 ${selectedPrompt?.id === prompt.id ? 'text-[#6d5c4d]' : 'text-gray-500'}`}>{prompt.description}</p>
+                )}
+              </div>
+              {selectedPrompt?.id === prompt.id && (
+                <span className="material-icons text-[#4b3b2a]">check_circle</span>
+              )}
+            </div>
+          ))}
+          {isLoading && prompts.length > 0 && (
+             <div className="flex justify-center py-2">
+               <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-[#6d5c4d]"></div>
+             </div>
+           )}
         </div>
       </div>
     </Modal>

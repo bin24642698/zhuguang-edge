@@ -334,16 +334,6 @@ export function PromptDetailContent({
 
         {/* 底部按钮 */}
         <div className="flex justify-end mt-6 space-x-3">
-          {onCancel && (
-            <button
-              onClick={onCancel}
-              className="btn-outline flex items-center text-sm px-4 py-2"
-            >
-              <span className="material-icons mr-1 text-sm">cancel</span>
-              取消
-            </button>
-          )}
-
           {onSave && (
             <button
               onClick={onSave}
@@ -351,6 +341,16 @@ export function PromptDetailContent({
             >
               <span className="material-icons mr-1 text-sm">save</span>
               保存
+            </button>
+          )}
+          
+          {onCancel && (
+            <button
+              onClick={onCancel}
+              className="btn-outline flex items-center text-sm px-4 py-2"
+            >
+              <span className="material-icons mr-1 text-sm">cancel</span>
+              取消
             </button>
           )}
         </div>

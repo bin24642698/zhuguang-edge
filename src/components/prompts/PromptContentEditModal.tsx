@@ -2,8 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { getCurrentUser } from '@/lib/supabase';
-import { generateEncryptionKey, decryptText } from '@/lib/utils/encryption';
+import { decryptText, generateLocalEncryptionKey } from '@/lib/utils/encryption';
 
 interface PromptContentEditModalProps {
   isOpen: boolean;
@@ -41,27 +40,22 @@ export function PromptContentEditModal({
       try {
         // 检查内容是否需要解密
         if (content.startsWith('U2F')) {
-          const user = await getCurrentUser();
-          if (user) {
-            const key = generateEncryptionKey(user.id);
-            try {
-              // 解密内容
-              let decrypted = decryptText(content, key);
+          const key = generateLocalEncryptionKey();
+          try {
+            // 解密内容
+            let decrypted = decryptText(content, key);
 
-              // 检查是否存在嵌套加密
-              let decryptAttempts = 0;
-              while (decrypted.startsWith('U2F') && decryptAttempts < 3) {
-                console.log(`检测到嵌套加密，尝试再次解密 (尝试 ${decryptAttempts + 1}/3)`);
-                decrypted = decryptText(decrypted, key);
-                decryptAttempts++;
-              }
-
-              setDecryptedContent(decrypted);
-            } catch (error) {
-              console.error('解密提示词内容失败:', error);
-              setDecryptedContent(content);
+            // 检查是否存在嵌套加密
+            let decryptAttempts = 0;
+            while (decrypted.startsWith('U2F') && decryptAttempts < 3) {
+              console.log(`检测到嵌套加密，尝试再次解密 (尝试 ${decryptAttempts + 1}/3)`);
+              decrypted = decryptText(decrypted, key);
+              decryptAttempts++;
             }
-          } else {
+
+            setDecryptedContent(decrypted);
+          } catch (error) {
+            console.error('解密提示词内容失败:', error);
             setDecryptedContent(content);
           }
         } else {

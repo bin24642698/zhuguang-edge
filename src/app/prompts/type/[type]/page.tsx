@@ -1,14 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, ChangeEvent, FormEvent } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
-import BackButton from '@/components/BackButton';
-import { Prompt, getPromptsByType, deletePrompt, addPrompt, updatePrompt, isUserPrompt, addUserPromptSelection, removeUserPromptSelection, isPromptSelectedByUser, getPublicPrompts, getUserPromptsByType } from '@/data';
-import { PromptDescriptionView, PromptDetailView } from '@/components/prompts';
-import { getCurrentUser } from '@/lib/supabase';
+import { Prompt, getPromptsByType, deletePrompt, addPrompt, updatePrompt, copyPrompt } from '@/data';
+import { PromptDetailView } from '@/components/prompts';
 
 // 提示词类型映射
 const promptTypeMap = {
@@ -93,6 +91,7 @@ const promptTemplates = {
 
 注意：你的分析应该尊重原文的创作意图，在提供改进建议时保持建设性和支持性的态度。`
 };
+
 // 定义Modal组件的参数类型
 interface ModalProps {
   isOpen: boolean;
@@ -104,7 +103,6 @@ interface ModalProps {
 
 // 弹窗组件
 const Modal = ({ isOpen, onClose, title, children, maxWidth = "max-w-4xl" }: ModalProps) => {
-  // 添加客户端渲染检查
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
@@ -132,7 +130,9 @@ const Modal = ({ isOpen, onClose, title, children, maxWidth = "max-w-4xl" }: Mod
           <div className="w-6">
             {/* 左侧占位，保持布局平衡 */}
           </div>
-          <h2 className="text-2xl font-bold text-text-dark font-ma-shan text-center">{title}</h2>
+          <h2 className="text-2xl font-bold text-text-dark font-ma-shan text-center">
+            {typeof title === 'string' ? title : <>{title}</>}
+          </h2>
           <button
             className="text-gray-500 hover:text-gray-700 w-6 flex justify-center"
             onClick={onClose}
@@ -147,6 +147,7 @@ const Modal = ({ isOpen, onClose, title, children, maxWidth = "max-w-4xl" }: Mod
     document.body
   );
 };
+
 // 截断内容 - 当前未使用，但保留以备将来使用
 const truncateContent = (content: string, length: number = 120) => {
   if (!content) return '';
@@ -157,55 +158,31 @@ const truncateContent = (content: string, length: number = 120) => {
 export default function PromptTypePage() {
   const router = useRouter();
   const params = useParams();
-  const promptType = (params?.type as string) as PromptType;
+  const promptTypeFromParams = params?.type as string;
 
+  const [promptType, setPromptType] = useState<PromptType | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
   const [prompts, setPrompts] = useState<Prompt[]>([]);
-  const [publicPrompts, setPublicPrompts] = useState<Prompt[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [showPublicPrompts, setShowPublicPrompts] = useState(true);
   const [formData, setFormData] = useState<{
     title: string;
-    type: PromptType;
+    type: PromptType | null;
     content: string;
     description: string;
-    isPublic: boolean;
   }>({
     title: '',
-    type: promptType,
-    content: promptTemplates[promptType as keyof typeof promptTemplates] || '',
+    type: null,
+    content: '',
     description: '',
-    isPublic: false
   });
   const [isEditing, setIsEditing] = useState(false);
   const [editedPrompt, setEditedPrompt] = useState<Prompt | null>(null);
-  const [isPromptSelected, setIsPromptSelected] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState<string>('');
 
-  useEffect(() => {
-    // 获取当前用户ID
-    const getCurrentUserId = async () => {
-      const user = await getCurrentUser();
-      if (user) {
-        setCurrentUserId(user.id);
-      }
-    };
-    getCurrentUserId();
-  }, []);
-
-  // 添加检查是否是提示词所有者的函数
-  const isPromptOwner = (prompt: Prompt) => {
-    if (!prompt || !currentUserId) return false;
-    // 检查userId属性是否存在
-    return prompt.userId ? prompt.userId === currentUserId : false;
-  };
-
-  // 卡片描述文本
-  const descriptions = {
+  const descriptions: Record<PromptType, string> = {
     'introduction': '创建引人入胜的开篇导语，为你的故事设定基调和氛围',
     'outline': '快速生成故事的主要框架和结构，帮助你规划创作方向',
     'detailed_outline': '基于大纲深入展开，为每个章节创建详细的内容规划',
@@ -217,37 +194,37 @@ export default function PromptTypePage() {
     'ai_polishing': '使用AI润色和优化已有文本，提升其文学性、可读性和吸引力',
     'book_tool': '一键上传TXT文件，AI智能分析文本内容，快速提取关键信息和创作灵感'
   };
-  // 加载提示词数据
+
+  useEffect(() => {
+    if (promptTypeFromParams && isValidPromptType(promptTypeFromParams)) {
+      setPromptType(promptTypeFromParams);
+      setFormData(prev => ({
+        ...prev,
+        type: promptTypeFromParams,
+        content: promptTemplates[promptTypeFromParams as keyof typeof promptTemplates] || ''
+      }));
+    } else {
+      router.push('/prompts');
+    }
+  }, [promptTypeFromParams, router]);
+
   useEffect(() => {
     const loadPrompts = async () => {
+      if (!promptType) return;
       try {
         setIsLoading(true);
-        if (!promptType || !promptTypeMap[promptType as keyof typeof promptTypeMap]) {
-          router.push('/prompts');
-          return;
-        }
-
-        // 只加载用户自己的提示词，不包括已选择的公开提示词
-        const loadedPrompts = await getUserPromptsByType(promptType);
+        const loadedPrompts = await getPromptsByType(promptType);
         setPrompts(loadedPrompts);
-
-        // 加载其他用户的公开提示词
-        const loadedPublicPrompts = await getPublicPrompts(promptType);
-        console.log('加载的公开提示词:', loadedPublicPrompts);
-        setPublicPrompts(loadedPublicPrompts);
       } catch (error) {
         console.error('加载提示词失败:', error);
         setPrompts([]);
-        setPublicPrompts([]);
       } finally {
         setIsLoading(false);
       }
     };
-
     loadPrompts();
-  }, [promptType, router]);
+  }, [promptType]);
 
-  // 过滤用户提示词
   const filteredPrompts = prompts.filter(prompt => {
     const matchesSearch =
       prompt.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -256,80 +233,63 @@ export default function PromptTypePage() {
     return matchesSearch;
   });
 
-  // 过滤公开提示词
-  const filteredPublicPrompts = publicPrompts.filter(prompt => {
-    const matchesSearch =
-      prompt.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (prompt.description && prompt.description.toLowerCase().includes(searchTerm.toLowerCase()));
-    return matchesSearch;
-  });
-  // 处理输入变更
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setFormData({
-      ...formData,
-      [name]: value
-    });
+    setFormData(prev => ({
+      ...prev,
+      [name]: value,
+    }));
   };
 
-  // 重置表单数据
   const resetFormData = () => {
+    if (promptType) {
     setFormData({
       title: '',
       type: promptType,
       content: promptTemplates[promptType as keyof typeof promptTemplates] || '',
       description: '',
-      isPublic: false
     });
+    }
   };
 
-  // 打开创建提示词弹窗
   const openCreateModal = () => {
     resetFormData();
     setShowCreateModal(true);
   };
 
-  // 打开删除提示词弹窗
   const openDeleteModal = (prompt: Prompt, e?: React.MouseEvent) => {
-    if (e) {
-      e.stopPropagation();
-    }
+    if (e) e.stopPropagation();
     setSelectedPrompt(prompt);
     setShowDeleteModal(true);
   };
 
-  // 处理提交
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!formData.type) {
+        alert('提示词类型不能为空');
+        return;
+    }
     try {
       const now = new Date();
       const promptData = {
         ...formData,
+        type: formData.type,
         createdAt: now,
         updatedAt: now,
-        examples: [], // 保持兼容性，设为空数组
-        isPublic: formData.isPublic || false
+        examples: [], 
       };
 
-      const newPrompt = await addPrompt(promptData);
-      setPrompts(prev => [newPrompt, ...prev]);
+      const newPrompt = await addPrompt(promptData as Omit<Prompt, 'id'>);
+      setPrompts(prev => [newPrompt, ...prev].sort((a,b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
       setShowCreateModal(false);
-
-      // 刷新列表
-      if (isValidPromptType(promptType)) {
-        const updatedPrompts = await getPromptsByType(promptType);
-        setPrompts(updatedPrompts);
-      }
     } catch (error) {
       console.error('创建提示词失败:', error);
       alert('创建提示词失败，请重试');
     }
   };
 
-  // 处理删除
   const handleDelete = async () => {
     if (!selectedPrompt || !selectedPrompt.id) return;
-
     try {
       await deletePrompt(selectedPrompt.id);
       setPrompts(prev => prev.filter(p => p.id !== selectedPrompt.id));
@@ -339,46 +299,44 @@ export default function PromptTypePage() {
       alert('删除提示词失败，请重试');
     }
   };
-  // 检查当前用户是否是提示词的作者
-  const isPromptAuthor = async (prompt: Prompt): Promise<boolean> => {
-    try {
-      return await isUserPrompt(prompt.id || 0);
-    } catch (error) {
-      console.error('检查提示词作者失败:', error);
-      return false;
-    }
-  };
 
-  // 打开详情弹窗
-  const openDetailModal = async (prompt: Prompt, isEditing: boolean = false) => {
+  const openDetailModal = (prompt: Prompt, editMode: boolean = false) => {
     setSelectedPrompt(prompt);
     setShowDetailModal(true);
-
-    // 只有提示词作者才能编辑，且只能在"我的提示词"页面编辑
-    const isAuthor = await isPromptAuthor(prompt);
-    const canEdit = isAuthor && !showPublicPrompts; // 在推荐页面不允许编辑
-    setIsEditing(isEditing && canEdit);
-    setEditedPrompt(isEditing && canEdit ? prompt : null);
-
-    // 检查提示词是否已被用户选择
-    if (prompt.id && !isAuthor) {
-      const isSelected = await isPromptSelectedByUser(prompt.id);
-      setIsPromptSelected(isSelected);
-    } else if (prompt.id && isAuthor && showPublicPrompts) {
-      // 如果是用户自己的提示词，但在推荐页面，也需要检查是否已被选择
-      const isSelected = await isPromptSelectedByUser(prompt.id);
-      setIsPromptSelected(isSelected);
+    setIsEditing(editMode);
+    setEditedPrompt(editMode ? { ...prompt } : null);
+  };
+  
+  const handleCopyPrompt = async (promptId: string) => {
+    try {
+      const newPrompt = await copyPrompt(promptId);
+      setPrompts(prev => [newPrompt, ...prev].sort((a,b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
+      setShowDetailModal(false); 
+      alert('提示词已复制！');
+    } catch (error) {
+      console.error('复制提示词失败:', error);
+      alert('复制提示词失败，请重试');
     }
   };
 
-  // 高亮搜索关键词
   const highlightMatch = (text: string, term: string) => {
     if (!term || !text) return text;
-    const parts = text.split(new RegExp(`(${term})`, 'gi'));
-    return parts.map((part: string, i: number) =>
-      part.toLowerCase() === term.toLowerCase() ? <mark key={i} className="bg-yellow-100 px-1 rounded">{part}</mark> : part
+    const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const parts = text.split(regex);
+    return parts.map((part, i) =>
+      regex.test(part) && part.toLowerCase() === term.toLowerCase() ? <mark key={i} className="bg-yellow-100 px-1 rounded">{part}</mark> : part
     );
   };
+
+  if (!promptType) {
+    return (
+        <div className="flex h-screen bg-bg-color items-center justify-center">
+            <div className="w-8 h-8 border-4 border-dashed rounded-full animate-spin border-primary-green"></div>
+            <p className="ml-4 text-text-medium">加载中...</p>
+        </div>
+    ); 
+  }
+
   return (
     <div className="flex h-screen bg-bg-color animate-fadeIn overflow-hidden">
       {/* 背景网格 */}
@@ -397,7 +355,7 @@ export default function PromptTypePage() {
       <Sidebar activeMenu="prompts" />
       <div className="flex-1 flex flex-col overflow-hidden main-content-area">
         <TopBar
-          title={promptType === 'book_tool' ? '一键拆书' : promptTypeMap[promptType as keyof typeof promptTypeMap]?.label || '提示词仓库'}
+          title={promptType === 'book_tool' ? '一键拆书' : promptTypeMap[promptType]?.label || '提示词仓库'}
           showBackButton={true}
           actions={
             <button
@@ -416,20 +374,16 @@ export default function PromptTypePage() {
           <div className="flex-shrink-0 mb-6">
             <div className="flex justify-between items-center mb-8">
               <div className="flex items-center">
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center shadow-md mr-4 ${
-                  promptTypeMap[promptType as keyof typeof promptTypeMap]?.color.split(' ')[0]
-                }`}>
-                  <span className={`material-icons text-xl ${
-                    promptTypeMap[promptType as keyof typeof promptTypeMap]?.color.split(' ')[1]
-                  }`}>{promptTypeMap[promptType as keyof typeof promptTypeMap]?.icon}</span>
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center shadow-md mr-4 ${promptTypeMap[promptType]?.color.split(' ')[0]}`}>
+                    <span className={`material-icons text-xl ${promptTypeMap[promptType]?.color.split(' ')[1]}`}>{promptTypeMap[promptType]?.icon}</span>
                 </div>
                 <div>
                   <h3 className="text-2xl font-bold text-text-dark font-ma-shan">
-                    {promptTypeMap[promptType as keyof typeof promptTypeMap]?.label}
+                      {promptTypeMap[promptType]?.label}
                     <span className="ml-2 text-sm font-normal text-text-medium">({filteredPrompts.length})</span>
                   </h3>
                   <p className="text-sm text-text-medium mt-1">
-                    {descriptions[promptType as keyof typeof descriptions]}
+                      {descriptions[promptType]}
                   </p>
                 </div>
               </div>
@@ -450,31 +404,6 @@ export default function PromptTypePage() {
                   />
                 </div>
               </div>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  className={`px-3 py-2 border rounded-xl flex items-center transition-colors shadow-sm ${
-                    showPublicPrompts
-                    ? "bg-[rgba(120,180,140,0.1)] border-[rgba(120,180,140,0.5)] text-primary-green"
-                    : "bg-card-color border-[rgba(120,180,140,0.3)] text-text-medium hover:bg-[rgba(120,180,140,0.1)]"
-                  }`}
-                  onClick={() => setShowPublicPrompts(true)}
-                >
-                  <span className="material-icons text-sm mr-2">public</span>
-                  推荐
-                </button>
-                <button
-                  className={`px-3 py-2 border rounded-xl flex items-center transition-colors shadow-sm ${
-                    !showPublicPrompts
-                    ? "bg-[rgba(120,180,140,0.1)] border-[rgba(120,180,140,0.5)] text-primary-green"
-                    : "bg-card-color border-[rgba(120,180,140,0.3)] text-text-medium hover:bg-[rgba(120,180,140,0.1)]"
-                  }`}
-                  onClick={() => setShowPublicPrompts(false)}
-                >
-                  <span className="material-icons text-sm mr-2">person</span>
-                  我的
-                </button>
-
-              </div>
             </div>
           </div>
           {/* 提示词内容区域 */}
@@ -487,42 +416,23 @@ export default function PromptTypePage() {
                   <div className="w-3 h-3 bg-[#E0976F] rounded-full animate-pulse delay-150 mr-1"></div>
                   <div className="w-3 h-3 bg-[#9C6FE0] rounded-full animate-pulse delay-300"></div>
                 </div>
-              ) : showPublicPrompts ? (
-                  // 显示公开提示词
-                  filteredPublicPrompts.length > 0 ? (
+                ) : filteredPrompts.length > 0 ? (
                     <>
-                      {/* 公开提示词列表 */}
-                      {filteredPublicPrompts.map(prompt => {
-                  // 获取更新时间
+                      {filteredPrompts.map(prompt => {
                   const updatedAt = new Date(prompt.updatedAt);
                   const now = new Date();
                   const diffDays = Math.floor((now.getTime() - updatedAt.getTime()) / (1000 * 60 * 60 * 24));
-
-                  // 格式化时间显示
                   let timeDisplay;
-                  if (diffDays === 0) {
-                    timeDisplay = '今天';
-                  } else if (diffDays === 1) {
-                    timeDisplay = '昨天';
-                  } else if (diffDays < 7) {
-                    timeDisplay = `${diffDays}天前`;
-                  } else {
-                    timeDisplay = updatedAt.toLocaleDateString();
-                  }
+                        if (diffDays === 0) timeDisplay = '今天';
+                        else if (diffDays === 1) timeDisplay = '昨天';
+                        else if (diffDays < 7) timeDisplay = `${diffDays}天前`;
+                        else timeDisplay = updatedAt.toLocaleDateString();
 
                   const typeConfig = promptTypeMap[prompt.type as keyof typeof promptTypeMap] || {
-                    label: '未知',
-                    icon: 'help_outline',
-                    color: 'text-gray-500',
-                    description: '未定义的提示词类型'
+                          label: '未知', icon: 'help_outline', color: 'text-gray-500'
                   };
-
-                  // 获取对应的颜色
                   const colorText = typeConfig.color.split(' ')[1];
                   const bgColor = typeConfig.color.split(' ')[0];
-
-                  // 提取颜色代码用于胶带
-                  const tapeColor = colorText.replace('text-', 'rgba(').replace(/\]/, ', 0.7)');
 
                   return (
                     <div
@@ -531,7 +441,6 @@ export default function PromptTypePage() {
                       onClick={() => openDetailModal(prompt, false)}
                     >
                       <div className="flex flex-col h-full">
-                        {/* 顶部LOGO和标题在同一行 */}
                         <div className="flex items-center mb-4">
                           <div className={`w-12 h-12 rounded-full ${bgColor} flex items-center justify-center mr-3`}>
                             <span className={`material-icons text-xl ${colorText}`}>{typeConfig.icon}</span>
@@ -540,29 +449,13 @@ export default function PromptTypePage() {
                             {highlightMatch(prompt.title, searchTerm)}
                           </h3>
                         </div>
-
                         <p className="text-text-medium text-sm mb-6 line-clamp-3">
                           {prompt.description ? highlightMatch(prompt.description, searchTerm) : '无描述'}
                         </p>
-
                         <div className="mt-auto border-t border-[rgba(120,180,140,0.2)] w-full pt-3 px-4 flex justify-between items-center">
                           <div className="flex items-center text-xs text-text-light">
                             <span className="material-icons text-text-light text-sm mr-1">schedule</span>
                             <span>{timeDisplay}</span>
-                          </div>
-                          <div className="flex space-x-2">
-                            {prompt.isPublic ? (
-                              <div className="flex items-center text-green-600">
-                                <span className="material-icons text-xs mr-1">public</span>
-                                <span className="text-xs">公开</span>
-                              </div>
-                            ) : null}
-                            {isPromptOwner(prompt) && (
-                              <div className="flex items-center text-[#7D85CC]">
-                                <span className="material-icons text-xs mr-1">person</span>
-                                <span className="text-xs">我的</span>
-                              </div>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -572,106 +465,6 @@ export default function PromptTypePage() {
                 })}
                   </>
                 ) : (
-                  // 无公开提示词提示
-                  <div className="col-span-full ghibli-card p-12 flex flex-col items-center justify-center h-full">
-                    <div className="w-24 h-24 bg-[rgba(120,180,140,0.1)] rounded-full flex items-center justify-center mb-4 text-text-light">
-                      <span className="material-icons text-4xl">search_off</span>
-                    </div>
-                    <h3 className="text-xl font-semibold text-text-dark mb-2 font-ma-shan">暂无推荐提示词</h3>
-                    <p className="text-text-medium text-center max-w-md mb-6">
-                      {searchTerm
-                        ? `没有找到包含"${searchTerm}"的推荐提示词`
-                        : `暂无${promptTypeMap[promptType as keyof typeof promptTypeMap]?.label}类型的推荐提示词。`}
-                    </p>
-                    <button
-                      className="ghibli-button"
-                      onClick={() => searchTerm ? setSearchTerm('') : setShowPublicPrompts(false)}
-                    >
-                      <span className="material-icons text-sm mr-2">{searchTerm ? 'clear' : 'person'}</span>
-                      {searchTerm ? '清除搜索' : '查看我的提示词'}
-                    </button>
-                  </div>
-                )
-              ) : (
-                // 显示用户自己的提示词
-                filteredPrompts.length > 0 ? (
-                  <>
-                    {/* 用户提示词列表 */}
-                    {filteredPrompts.map(prompt => {
-                      // 获取更新时间
-                      const updatedAt = new Date(prompt.updatedAt);
-                      const now = new Date();
-                      const diffDays = Math.floor((now.getTime() - updatedAt.getTime()) / (1000 * 60 * 60 * 24));
-
-                      // 格式化时间显示
-                      let timeDisplay;
-                      if (diffDays === 0) {
-                        timeDisplay = '今天';
-                      } else if (diffDays === 1) {
-                        timeDisplay = '昨天';
-                      } else if (diffDays < 7) {
-                        timeDisplay = `${diffDays}天前`;
-                      } else {
-                        timeDisplay = updatedAt.toLocaleDateString();
-                      }
-
-                      const typeConfig = promptTypeMap[prompt.type as keyof typeof promptTypeMap] || {
-                        label: '未知',
-                        icon: 'help_outline',
-                        color: 'text-gray-500',
-                        description: '未定义的提示词类型'
-                      };
-
-                      // 获取对应的颜色
-                      const colorText = typeConfig.color.split(' ')[1];
-                      const bgColor = typeConfig.color.split(' ')[0];
-
-                      // 提取颜色代码用于胶带
-                      const tapeColor = colorText.replace('text-', 'rgba(').replace(/\]/, ', 0.7)');
-
-                      return (
-                        <div
-                          key={prompt.id}
-                          className="ghibli-card h-80 cursor-pointer animate-fadeIn"
-                          onClick={() => openDetailModal(prompt, false)}
-                        >
-                          <div className="flex flex-col h-full">
-                            {/* 顶部LOGO和标题在同一行 */}
-                            <div className="flex items-center mb-4">
-                              <div className={`w-12 h-12 rounded-full ${bgColor} flex items-center justify-center mr-3`}>
-                                <span className={`material-icons text-xl ${colorText}`}>{typeConfig.icon}</span>
-                              </div>
-                              <h3 className="font-medium text-text-dark text-xl font-ma-shan">
-                                {highlightMatch(prompt.title, searchTerm)}
-                              </h3>
-                            </div>
-
-                            <p className="text-text-medium text-sm mb-6 line-clamp-3">
-                              {prompt.description ? highlightMatch(prompt.description, searchTerm) : '无描述'}
-                            </p>
-
-                            <div className="mt-auto border-t border-[rgba(120,180,140,0.2)] w-full pt-3 px-4 flex justify-between items-center">
-                              <div className="flex items-center text-xs text-text-light">
-                                <span className="material-icons text-text-light text-sm mr-1">schedule</span>
-                                <span>{timeDisplay}</span>
-                              </div>
-                              <div className="flex space-x-2">
-                                {prompt.isPublic ? (
-                                  <div className="flex items-center text-green-600">
-                                    <span className="material-icons text-xs mr-1">public</span>
-                                    <span className="text-xs">公开</span>
-                                  </div>
-                                ) : null}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="page-curl"></div>
-                        </div>
-                      );
-                    })}
-                  </>
-                ) : (
-                  // 无用户提示词提示
                   <div className="col-span-full ghibli-card p-12 flex flex-col items-center justify-center h-full">
                     <div className="w-24 h-24 bg-[rgba(120,180,140,0.1)] rounded-full flex items-center justify-center mb-4 text-text-light">
                       <span className="material-icons text-4xl">search_off</span>
@@ -679,353 +472,137 @@ export default function PromptTypePage() {
                     <h3 className="text-xl font-semibold text-text-dark mb-2 font-ma-shan">暂无提示词</h3>
                     <p className="text-text-medium text-center max-w-md mb-6">
                       {searchTerm
-                        ? `没有找到包含"${searchTerm}"的提示词`
-                        : `你尚未创建任何${promptTypeMap[promptType as keyof typeof promptTypeMap]?.label}类型的提示词，点击下方按钮创建第一个提示词。`}
+                          ? `没有找到包含"${searchTerm}"的提示词。`
+                          : `您还没有创建任何${promptTypeMap[promptType]?.label}类型的提示词。`}
                     </p>
                     <button
                       className="ghibli-button"
                       onClick={() => searchTerm ? setSearchTerm('') : openCreateModal()}
                     >
                       <span className="material-icons text-sm mr-2">{searchTerm ? 'clear' : 'add'}</span>
-                      {searchTerm ? '清除搜索' : '创建提示词'}
+                        {searchTerm ? '清除搜索' : '创建第一个提示词'}
                     </button>
                   </div>
                 )
-              )}
+                }
               </div>
           </div>
         </div>
       </main>
       {/* 创建提示词弹窗 */}
-      <Modal
-        isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        title="创建新提示词"
-      >
-        <div className="mb-6">
-          <div className="ghibli-card p-6 animate-fadeIn relative">
-            {/* 顶部胶带 */}
-            <div className="tape" style={{ backgroundColor: "rgba(120, 180, 140, 0.7)" }}>
-              <div className="tape-texture"></div>
-            </div>
-
-            <div className="mt-6 h-[500px] overflow-y-auto px-4">
-              <form id="createPromptForm" onSubmit={handleSubmit} className="space-y-6 w-full max-w-2xl mx-auto">
-                <div className="space-y-2">
-                  <label htmlFor="title" className="block text-text-dark font-medium mb-2">提示词标题</label>
+        {showCreateModal && (
+          <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="创建新提示词">
+            <form onSubmit={handleSubmit} className="space-y-6 flex flex-col flex-grow min-h-[400px]">
+              <div>
+                <label className="block text-text-dark font-medium mb-2">标题</label>
                   <input
-                    id="title"
+                  type="text"
                     name="title"
-                    type="text"
-                    required
+                  className="w-full px-4 py-2 bg-white bg-opacity-70 border border-[rgba(120,180,140,0.3)] rounded-xl focus:outline-none focus:ring-2 focus:ring-[rgba(120,180,140,0.5)] text-text-dark"
                     placeholder="输入提示词标题..."
                     value={formData.title}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-2 rounded-xl border border-[rgba(120,180,140,0.3)] bg-white bg-opacity-70 focus:outline-none focus:ring-2 focus:ring-primary-green focus:border-transparent"
+                  required
                   />
                 </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="type" className="block text-text-dark font-medium mb-2">提示词类型</label>
-                  <div className="py-2 px-4 rounded-xl bg-white bg-opacity-70 border border-[rgba(120,180,140,0.3)]">
-                    <div className="flex items-center">
-                      <span className={`px-3 py-1 rounded-full text-xs ${promptTypeMap[promptType]?.color}`}>
-                        <span className="material-icons text-xs mr-1 align-text-top">{promptTypeMap[promptType]?.icon}</span>
-                        {promptTypeMap[promptType]?.label}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="content" className="block text-text-dark font-medium mb-2">提示词内容</label>
+              <div className="flex-grow flex flex-col">
+                  <label className="block text-text-dark font-medium mb-2">内容</label>
                   <textarea
-                    id="content"
                     name="content"
-                    required
+                      className="w-full px-4 py-3 bg-white bg-opacity-70 border border-[rgba(120,180,140,0.3)] rounded-xl focus:outline-none focus:ring-2 focus:ring-[rgba(120,180,140,0.5)] text-text-dark flex-grow min-h-[120px]"
                     placeholder="输入提示词内容..."
                     value={formData.content}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-3 rounded-xl border border-[rgba(120,180,140,0.3)] bg-white bg-opacity-70 focus:outline-none focus:ring-2 focus:ring-primary-green focus:border-transparent min-h-[120px] overflow-y-auto break-words whitespace-pre-wrap"
+                      required
                   ></textarea>
                 </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="description" className="block text-text-dark font-medium mb-2">提示词描述</label>
+              <div>
+                  <label className="block text-text-dark font-medium mb-2">描述 <span className="text-text-light text-sm">(可选)</span></label>
                   <textarea
-                    id="description"
                     name="description"
-                    placeholder="描述这个提示词的用途和使用场景..."
+                      className="w-full px-4 py-3 bg-white bg-opacity-70 border border-[rgba(120,180,140,0.3)] rounded-xl focus:outline-none focus:ring-2 focus:ring-[rgba(120,180,140,0.5)] text-text-dark min-h-[80px]"
+                      placeholder="简短描述提示词的用途..."
                     value={formData.description}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-3 rounded-xl border border-[rgba(120,180,140,0.3)] bg-white bg-opacity-70 focus:outline-none focus:ring-2 focus:ring-primary-green focus:border-transparent min-h-[120px]"
                   ></textarea>
                 </div>
-
-                <div className="space-y-2">
-                  <label className="block text-text-dark font-medium mb-2">提示词权限</label>
-                  <div className="flex items-center space-x-4">
-                    <label className="flex items-center space-x-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        name="isPublic"
-                        checked={formData.isPublic}
-                        onChange={(e) => {
-                          setFormData({
-                            ...formData,
-                            isPublic: e.target.checked
-                          });
-                        }}
-                        className="form-checkbox h-5 w-5 text-[#5a9d6b] rounded border-[rgba(120,180,140,0.5)]"
-                      />
-                      <span className="text-text-medium">允许其他用户查看和使用此提示词</span>
-                    </label>
-                  </div>
-                  <p className="text-text-light text-sm mt-1">
-                    <span className="material-icons text-xs align-middle mr-1">info</span>
-                    公开的提示词可以被所有用户查看和使用，但内容仍然保持加密状态
-                  </p>
+              <div className="flex justify-end space-x-3 mt-auto pt-4">
+                <button type="button" onClick={() => setShowCreateModal(false)} className="btn-outline text-sm">取消</button>
+                <button type="submit" className="btn-primary text-sm">创建</button>
                 </div>
               </form>
-            </div>
+      </Modal>
+        )}
 
-            {/* 翻页效果 */}
-            <div className="page-curl"></div>
-          </div>
-        </div>
-
-        <div className="flex justify-end space-x-3 pt-4 border-t border-[rgba(120,180,140,0.3)]">
-          <button
-            type="submit"
-            form="createPromptForm"
-            className="ghibli-button text-sm py-2"
-          >
-            创建提示词
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowCreateModal(false)}
-            className="ghibli-button outline text-sm py-2"
-          >
-            取消
-          </button>
+        {/* 删除提示词弹窗 */}
+        {showDeleteModal && selectedPrompt && (
+          <Modal isOpen={showDeleteModal} onClose={() => setShowDeleteModal(false)} title={`删除提示词 "${selectedPrompt.title}"`}>
+            <p className="text-text-medium mb-6">确定要删除提示词 "{selectedPrompt.title}"吗？此操作无法撤销。</p>
+            <div className="flex justify-end space-x-3">
+              <button onClick={() => setShowDeleteModal(false)} className="btn-outline text-sm">取消</button>
+              <button onClick={handleDelete} className="btn-danger text-sm">删除</button>
         </div>
       </Modal>
-      {/* 删除确认弹窗 */}
-      <Modal
-        isOpen={showDeleteModal}
-        onClose={() => setShowDeleteModal(false)}
-        title="删除提示词"
-      >
-        <div className="mb-6">
-          <div className="ghibli-card p-6 animate-fadeIn relative">
-            <div className="tape" style={{ backgroundColor: "rgba(224, 111, 111, 0.7)" }}>
-              <div className="tape-texture"></div>
-            </div>
+        )}
 
-            <div className="my-auto h-[300px] overflow-y-auto px-4">
-              <div className="bg-red-50 rounded-xl p-6 mb-6 text-center w-full max-w-lg mx-auto">
-                <span className="material-icons text-red-500 text-4xl mb-4">warning</span>
-                <p className="text-center text-red-700 text-lg font-medium mb-2">确定要删除这个提示词吗？</p>
-                <p className="text-center text-red-600 text-sm">此操作无法撤销</p>
-              </div>
-            </div>
-
-            <div className="page-curl"></div>
-          </div>
-        </div>
-
-        <div className="flex justify-end space-x-3 pt-4 border-t border-[rgba(120,180,140,0.3)]">
-          <button
-            onClick={handleDelete}
-            className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-sm transition-colors shadow-sm"
-          >
-            确认删除
-          </button>
-          <button
-            onClick={() => setShowDeleteModal(false)}
-            className="ghibli-button outline text-sm py-2"
-          >
-            取消
-          </button>
-        </div>
-      </Modal>
-      {/* 详情/编辑弹窗 */}
+        {/* 提示词详情/编辑弹窗 (PromptDetailView) */}
+        {showDetailModal && selectedPrompt && (
       <Modal
         isOpen={showDetailModal}
-        onClose={() => setShowDetailModal(false)}
-        title={selectedPrompt?.title || '提示词详情'}
-      >
-        <div className="mb-6">
-          <div className="ghibli-card p-6 animate-fadeIn relative">
-            <div className="tape" style={{ backgroundColor: selectedPrompt ? getTypeColor(selectedPrompt.type) : "rgba(120, 180, 140, 0.7)" }}>
-              <div className="tape-texture"></div>
-            </div>
-
-            <div className="mt-6 h-[500px] overflow-y-auto px-4">
-              {selectedPrompt && (
-                <div className="w-full max-w-2xl mx-auto">
-                  {/* 检查是否是提示词作者且不在推荐页面 */}
-                  {isPromptOwner(selectedPrompt) && !showPublicPrompts ? (
-                    // 提示词作者视图 - 可以查看完整内容和编辑（仅在"我的"页面）
+            onClose={() => {
+              setShowDetailModal(false);
+              setIsEditing(false);
+            }} 
+            title={isEditing ? "编辑提示词" : selectedPrompt.title} 
+            maxWidth="max-w-5xl"
+          >
                     <PromptDetailView
                       prompt={selectedPrompt}
                       isEditing={isEditing}
                       editedPrompt={editedPrompt || undefined}
-                      handleInputChange={(e) => {
+              handleInputChange={(e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
                         const { name, value } = e.target;
-                        setEditedPrompt(prev => prev ? { ...prev, [name]: value } : null);
+                setEditedPrompt(prev => prev ? { 
+                  ...prev, 
+                  [name]: value,
+                } : null);
                       }}
-                      handleExampleChange={(index, value) => {
-                        if (!editedPrompt) return;
-                        const newExamples = [...(editedPrompt.examples || [])];
-                        newExamples[index] = value;
-                        setEditedPrompt({
-                          ...editedPrompt,
-                          examples: newExamples
-                        });
-                      }}
-                      addExample={() => {
-                        if (!editedPrompt) return;
-                        setEditedPrompt({
-                          ...editedPrompt,
-                          examples: [...(editedPrompt.examples || []), '']
-                        });
-                      }}
-                      removeExample={(index) => {
-                        if (!editedPrompt) return;
-                        const newExamples = [...(editedPrompt.examples || [])];
-                        newExamples.splice(index, 1);
-                        setEditedPrompt({
-                          ...editedPrompt,
-                          examples: newExamples
-                        });
-                      }}
-                      onDelete={() => {
-                        setShowDetailModal(false);
-                        openDeleteModal(selectedPrompt);
-                      }}
-                      onEdit={() => {
-                        setIsEditing(true);
-                        setEditedPrompt(selectedPrompt);
-                      }}
-                    />
-                  ) : (
-                    // 其他用户视图或在推荐页面查看自己的提示词 - 只能查看描述
-                    <PromptDescriptionView
-                      prompt={selectedPrompt}
-                      isOwner={isPromptOwner(selectedPrompt) && !showPublicPrompts}
-                    />
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="page-curl"></div>
-          </div>
-        </div>
-
-        <div className="flex justify-between space-x-3 pt-4 border-t border-[rgba(120,180,140,0.3)]">
-          {/* 左侧按钮区域 */}
-          <div>
-            {selectedPrompt && (
-              <>
-                {/* 非作者的提示词或在推荐页面查看自己的提示词 */}
-                {(!isPromptOwner(selectedPrompt) || (isPromptOwner(selectedPrompt) && showPublicPrompts)) && (
-                  <button
-                    onClick={async () => {
-                      try {
-                        if (isPromptSelected) {
-                          // 从用户选择中移除提示词
-                          await removeUserPromptSelection(String(selectedPrompt.id!));
-                          setIsPromptSelected(false);
-                          alert(`已从下拉菜单中移除"${selectedPrompt.title}"`);
-                        } else {
-                          // 添加提示词到用户选择
-                          await addUserPromptSelection(String(selectedPrompt.id!));
-                          setIsPromptSelected(true);
-                          alert(`已成功添加"${selectedPrompt.title}"到下拉菜单`);
-                        }
-                      } catch (error) {
-                        console.error('操作提示词选项失败:', error);
-                        alert('操作提示词选项失败，请重试');
-                      }
-                    }}
-                    className={`btn-outline flex items-center text-sm px-4 py-2 ${
-                      isPromptSelected
-                        ? "text-[#e06f6f] border-[#e06f6f]"
-                        : "text-[#5a9d6b] border-[#5a9d6b]"
-                    }`}
-                  >
-                    <span className="material-icons mr-1 text-sm">{isPromptSelected ? 'remove' : 'add'}</span>
-                    {isPromptSelected ? '从下拉菜单中移除' : '添加到下拉菜单'}
-                  </button>
-                )}
-
-                {/* 在推荐页面查看自己的提示词时显示提示信息 */}
-                {isPromptOwner(selectedPrompt) && showPublicPrompts && (
-                  <div className="flex items-center text-text-medium text-sm ml-3">
-                    <span className="material-icons text-xs mr-1 text-[#7D85CC]">info</span>
-                    <span>要编辑此提示词，请前往"我的"页面</span>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          {/* 右侧按钮区域 */}
-          <div className="flex space-x-3">
-            {isEditing && isPromptOwner(selectedPrompt!) && !showPublicPrompts ? (
-              <>
-                <button
-                  onClick={async () => {
-                    if (!editedPrompt || !editedPrompt.id || !selectedPrompt) return;
-                    try {
-                      const updatedPrompt = {
-                        ...editedPrompt,
-                        type: selectedPrompt.type,
-                        updatedAt: new Date(),
-                        isPublic: editedPrompt.isPublic || false
-                      };
-                      await updatePrompt(updatedPrompt);
-                      setSelectedPrompt(updatedPrompt);
+              onSave={async () => {
+                if (editedPrompt && editedPrompt.id) {
+                  try {
+                    const now = new Date();
+                    const { isPublic, ...restOfEditedPrompt } = editedPrompt as Prompt & { isPublic?: boolean };
+                    const updatedData = { 
+                      ...restOfEditedPrompt, 
+                      updatedAt: now,
+                    };
+                    const updated = await updatePrompt(updatedData);
+                    setPrompts(prev => prev.map(p => p.id === updated.id ? updated : p).sort((a,b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
+                    setShowDetailModal(false);
                       setIsEditing(false);
-
-                      // 刷新提示词列表
-                      if (isValidPromptType(promptType)) {
-                        const updatedPrompts = await getPromptsByType(promptType);
-                        setPrompts(updatedPrompts);
-                      }
                     } catch (error) {
                       console.error('更新提示词失败:', error);
                       alert('更新提示词失败，请重试');
                     }
+                }
                   }}
-                  className="ghibli-button text-sm py-2"
-                >
-                  保存
-                </button>
-                <button
-                  onClick={() => {
+              onCancel={() => {
+                setShowDetailModal(false);
                     setIsEditing(false);
-                    setEditedPrompt(selectedPrompt);
-                  }}
-                  className="ghibli-button outline text-sm py-2"
-                >
-                  取消
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => setShowDetailModal(false)}
-                className="ghibli-button outline text-sm py-2"
-              >
-                关闭
-              </button>
-            )}
-          </div>
-        </div>
+              }}
+              onDelete={() => {
+                if (selectedPrompt) {
+                  openDeleteModal(selectedPrompt);
+                }
+              }}
+              onEdit={() => {
+                setIsEditing(true);
+                setEditedPrompt({ ...selectedPrompt });
+              }}
+              onCopy={() => selectedPrompt.id && handleCopyPrompt(selectedPrompt.id)}
+            />
       </Modal>
+        )}
       </div>
     </div>
   );

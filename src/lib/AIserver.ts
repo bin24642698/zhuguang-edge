@@ -3,8 +3,8 @@
  * 提供与Gemini API的通信功能
  */
 import { OpenAI } from 'openai'; // 导入OpenAI库
-import { getCurrentUser } from '@/lib/supabase';
-import { generateEncryptionKey, decryptText } from '@/lib/utils/encryption';
+// import { getCurrentUser } from '@/lib/supabase'; // 移除了 getCurrentUser
+import { decryptText, generateLocalEncryptionKey } from '@/lib/utils/encryption'; // 引入 generateLocalEncryptionKey
 import { getPromptById } from '@/data';
 import { getUserApiKey, incrementKeyUsage } from '@/lib/supabase/apiKeyPoolService';
 
@@ -37,7 +37,7 @@ const DEFAULT_OPTIONS: Omit<GenerateOptions, 'model' | 'abortSignal'> = {
 };
 
 // API Base URL (从用户输入获取)
-const API_BASE = "https://bin.24642698.xyz/v1";
+const API_BASE = "https://bin.2464269801.shop/v1";
 
 /**
  * 错误处理函数
@@ -111,19 +111,13 @@ const decryptPromptMessages = async (messages: Message[]): Promise<Message[]> =>
           throw new Error(`提示词ID ${promptId} 不存在`);
         }
 
-        // 获取当前用户
-        const user = await getCurrentUser();
-        if (!user) {
-          throw new Error('用户未登录，无法解密提示词');
-        }
-
         // 解密提示词内容
         let promptContent = prompt.content;
 
         // 检查是否需要解密（以U2F开头的是加密内容）
         if (promptContent && promptContent.startsWith('U2F')) {
-          // 生成解密密钥
-          const key = generateEncryptionKey(user.id);
+          // 生成解密密钥 (使用本地密钥)
+          const key = generateLocalEncryptionKey();
 
           // 解密提示词内容
           promptContent = decryptText(promptContent, key);
@@ -150,7 +144,7 @@ const decryptPromptMessages = async (messages: Message[]): Promise<Message[]> =>
           const hasRule2 = message.content.includes('<通用规则2>') && message.content.includes('</通用规则2>');
 
           // 替换<提示词内容>标签中的内容
-          finalContent = message.content.replace(/<提示词内容>.*?<\/提示词内容>/s, `<提示词内容>${promptContent}</提示词内容>`);
+          finalContent = message.content.replace(/<提示词内容>[\s\S]*?<\/提示词内容>/, `<提示词内容>${promptContent}</提示词内容>`);
 
           // 如果没有<通用规则2>标签，添加它
           if (!hasRule2) {
@@ -203,9 +197,9 @@ const getOpenAIClient = async (): Promise<OpenAI> => {
   // 添加调试信息
   console.log("API Key获取结果:", apiKey ? "成功获取API Key" : "未获取到API Key");
 
-  // 获取当前用户信息，用于调试
-  const user = await getCurrentUser();
-  console.log("当前用户ID:", user?.id);
+  // // 获取当前用户信息，用于调试 (不再需要)
+  // const user = await getCurrentUser();
+  // console.log("当前用户ID:", user?.id);
 
   if (!apiKey) {
     console.error("API Key获取失败，检查数据库中是否有正确的分配记录");

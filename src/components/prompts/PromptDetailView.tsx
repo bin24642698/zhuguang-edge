@@ -25,6 +25,7 @@ interface PromptDetailViewProps {
   onCancel?: () => void;
   onDelete?: () => void;
   onEdit?: () => void;
+  onCopy?: () => void;
 }
 
 /**
@@ -41,7 +42,8 @@ export function PromptDetailView({
   onSave,
   onCancel,
   onDelete,
-  onEdit
+  onEdit,
+  onCopy
 }: PromptDetailViewProps) {
   // 状态
   const [isContentEditModalOpen, setIsContentEditModalOpen] = useState(false);
@@ -122,32 +124,6 @@ export function PromptDetailView({
               ></textarea>
             </div>
 
-            {/* 公开设置 */}
-            <div>
-              <label className="block text-text-dark font-medium mb-2">提示词权限</label>
-              <div className="flex items-center space-x-4">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    name="isPublic"
-                    checked={editedPrompt?.isPublic || false}
-                    onChange={(e) => handleInputChange && handleInputChange({
-                      target: {
-                        name: 'isPublic',
-                        value: e.target.checked
-                      }
-                    } as React.ChangeEvent<HTMLInputElement>)}
-                    className="form-checkbox h-5 w-5 text-[#5a9d6b] rounded border-[rgba(120,180,140,0.5)]"
-                  />
-                  <span className="text-text-medium">允许其他用户查看和使用此提示词</span>
-                </label>
-              </div>
-              <p className="text-text-light text-sm mt-1">
-                <span className="material-icons text-xs align-middle mr-1">info</span>
-                公开的提示词可以被所有用户查看和使用，但内容仍然保持加密状态
-              </p>
-            </div>
-
             {/* 示例管理 */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -192,16 +168,6 @@ export function PromptDetailView({
 
         {/* 底部按钮 */}
         <div className="flex justify-end mt-6 space-x-3">
-          {onCancel && (
-            <button
-              onClick={onCancel}
-              className="btn-outline flex items-center text-sm px-4 py-2"
-            >
-              <span className="material-icons mr-1 text-sm">cancel</span>
-              取消
-            </button>
-          )}
-
           {onSave && (
             <button
               onClick={onSave}
@@ -209,6 +175,16 @@ export function PromptDetailView({
             >
               <span className="material-icons mr-1 text-sm">save</span>
               保存
+            </button>
+          )}
+          
+          {onCancel && (
+            <button
+              onClick={onCancel}
+              className="btn-outline flex items-center text-sm px-4 py-2"
+            >
+              <span className="material-icons mr-1 text-sm">cancel</span>
+              取消
             </button>
           )}
         </div>
@@ -245,63 +221,70 @@ export function PromptDetailView({
             )}
           </div>
 
-          {/* 提示词内容 - 已删除 */}
+          {/* 提示词内容 */}
+          <div className="mb-6">
+            <h4 className="text-text-dark font-medium mb-2">提示词内容</h4>
+            <div
+              className="p-5 bg-white bg-opacity-50 rounded-xl border border-[rgba(120,180,140,0.2)] min-h-[100px] break-words whitespace-pre-wrap"
+              style={{ whiteSpace: "pre-wrap" }}
+            >
+              {prompt.content || <span className="text-text-light italic">此提示词无内容</span>}
+            </div>
+          </div>
 
           {/* 示例 */}
           {prompt.examples && prompt.examples.length > 0 && (
-            <div className="mt-4">
+            <div className="mb-6">
               <h4 className="text-text-dark font-medium mb-2">示例</h4>
               <div className="space-y-3">
                 {prompt.examples.map((example, index) => (
                   <div key={index} className="p-4 bg-white bg-opacity-50 rounded-xl border border-[rgba(120,180,140,0.2)]">
-                    <p className="whitespace-pre-wrap text-text-medium">{example}</p>
+                    <p className="whitespace-pre-wrap text-text-medium text-sm">{example}</p>
                   </div>
                 ))}
               </div>
             </div>
           )}
+
+          {/* 创建日期 */}
+          <div className="text-xs text-text-light">
+            创建于: {formatDate(prompt.createdAt)} | 最后更新: {formatDate(prompt.updatedAt)}
+          </div>
         </div>
 
-        {/* 底部元信息 */}
-        <div className="flex items-center justify-between text-text-light text-sm mt-auto">
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center">
-              <span className="material-icons text-xs mr-1">event</span>
-              创建于: {formatDate(prompt.createdAt)}
-            </div>
-            {prompt.isPublic && (
-              <div className="flex items-center text-green-600">
-                <span className="material-icons text-xs mr-1">public</span>
-                公开提示词
-              </div>
+        {/* 底部按钮 */}
+        <div className="flex justify-between items-center mt-auto pt-4 border-t border-[rgba(120,180,140,0.2)]">
+          <div>
+            {onCopy && (
+              <button
+                onClick={onCopy}
+                className="btn-outline flex items-center text-sm px-3 py-2 text-[#7D85CC] border-[#7D85CC] hover:bg-[#7D85CC] hover:text-white"
+              >
+                <span className="material-icons mr-1 text-sm">content_copy</span>
+                复制
+              </button>
             )}
           </div>
-          <div className="flex items-center">
-            <span className="material-icons text-xs mr-1">update</span>
-            更新于: {formatDate(prompt.updatedAt)}
+          <div className="flex space-x-3">
+            {onEdit && (
+              <button
+                onClick={onEdit}
+                className="btn-outline flex items-center text-sm px-4 py-2"
+              >
+                <span className="material-icons mr-1 text-sm">edit</span>
+                编辑
+              </button>
+            )}
+            {onDelete && (
+              <button
+                onClick={onDelete}
+                className="btn-danger-outline flex items-center text-sm px-4 py-2"
+              >
+                <span className="material-icons mr-1 text-sm">delete</span>
+                删除
+              </button>
+            )}
           </div>
-        </div>
-
-        {/* 操作按钮区 */}
-        <div className="flex justify-end mt-6 space-x-3">
-          {onEdit && (
-            <button
-              onClick={onEdit}
-              className="btn-outline flex items-center text-sm px-4 py-2"
-            >
-              <span className="material-icons mr-1 text-sm">edit</span>
-              编辑
-            </button>
-          )}
-          {onDelete && (
-            <button
-              onClick={onDelete}
-              className="btn-outline flex items-center text-sm px-4 py-2 text-[#E06F6F] border-[#E06F6F]"
-            >
-              <span className="material-icons mr-1 text-sm">delete</span>
-              删除
-            </button>
-          )}
         </div>
       </div>
     );
